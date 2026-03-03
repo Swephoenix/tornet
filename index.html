@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whiteboard Tornet</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --color-60-bg: #F3F4F6;       
+    --color-60-surface: #FFFFFF;  
+    --color-30-dark: #1F2937;     
+    --color-30-muted: #6B7280;    
+    --color-10-accent: #4F46E5;   
+    --color-10-hover: #4338CA;    
+}
+
+body {
+margin: 0;
+overflow: hidden;
+font-family: 'Inter', sans-serif;
+background: var(--color-60-bg);
+color: var(--color-30-dark);
+}
+
+/* --- Viewport & Canvas --- */
+#viewport {
+position: absolute;
+left: 0; top: 0; right: 320px; bottom: 0;
+overflow: hidden;
+cursor: grab;
+transition: right 0.2s ease;
+}
+#viewport.expanded { right: 0; }
+#viewport:active { cursor: grabbing; }
+#board { position: absolute; transform-origin: 0 0; will-change: transform; }
+
+/* --- Noder & Lagerstyrning --- */
+.node {
+position: absolute;
+background: var(--color-60-surface);
+border-radius: 12px;
+padding: 20px;
+user-select: none;
+border: 2px solid #E5E7EB;
+transition: border-color 0.1s, transform 0.1s;
+}
+
+/* Tornet - Lägsta z-index för boxen */
+.tower {
+width: 620px;
+background: var(--color-30-dark);
+color: var(--color-60-surface);
+border: 2px solid var(--color-30-dark);
+display: flex;
+align-items: center;
+justify-content: space-between;
+padding: 15px 25px;
+box-sizing: border-box;
+height: 120px;
+z-index: 1; /* Bakom linjer */
+}
+
+.tower-title { font-weight: 700; font-size: 1.4rem; }
+
+.tower-logo {
+position: absolute;
+top: -300px;
+left: 48%;
+transform: translateX(-50%);
+width: 300px;
+height: 300px;
+background-image: url('tower.png');
+background-size: cover;
+background-repeat: no-repeat;
+z-index: 10;
+}
+
+/* Knappar - Högt z-index så de ligger ovanpå linjerna */
+.ui-btn {
+position: relative;
+z-index: 11;
+display: flex;
+align-items: center;
+gap: 10px;
+background: var(--color-60-surface);
+color: var(--color-30-dark);
+padding: 8px 16px;
+font-size: 13px;
+font-weight: 600;
+cursor: pointer;
+border: 2px solid transparent;
+transition: border-color 0.1s, color 0.1s;
+}
+.ui-btn:hover { border-color: var(--color-10-accent); color: var(--color-10-accent); }
+.pill-btn { border-radius: 30px; }
+.rect-btn { border-radius: 8px; }
+.icon-circle { width: 12px; height: 12px; border-radius: 50%; background: var(--color-10-accent); }
+.icon-square { width: 12px; height: 12px; border-radius: 3px; background: var(--color-10-accent); }
+
+/* Gruppledare & Plattformar - Högt z-index så de täcker linjer som går under dem */
+.person, .platform { z-index: 10; }
+
+.person {
+width: 100px; height: 120px; text-align: center;
+font-size: 13px; font-weight: 500; padding: 15px;
+display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.figure {
+width: 40px; height: 40px; background: var(--color-60-bg); border-radius: 50%;
+margin-bottom: 12px; position: relative;
+}
+.figure::before { content: ''; width: 14px; height: 14px; background: var(--color-30-dark); border-radius: 50%; position: absolute; top: 8px; left: 13px; }
+.figure::after { content: ''; width: 24px; height: 12px; background: var(--color-30-dark); border-radius: 12px 12px 0 0; position: absolute; top: 24px; left: 8px; }
+
+.platform { width: 260px; text-align: center; font-weight: 600; }
+.placeholder {
+margin-top: 15px; background-color: var(--color-60-bg);
+background-image: url('plattform.png'); background-size: cover;
+background-position: center; background-repeat: no-repeat;
+height: 100px; border-radius: 6px; border: 2px dashed #D1D5DB;
+}
+
+/* --- Animation Brev --- */
+.envelope {
+position: absolute;
+width: 30px; height: 30px;
+background-image: url('brev.png');
+background-size: contain;
+background-repeat: no-repeat;
+pointer-events: none;
+opacity: 0;
+z-index: 5; /* Mellan Torn och Gruppledare */
+offset-rotate: auto;
+}
+.envelope.active { opacity: 1; animation: moveAlong 1.5s linear infinite; }
+@keyframes moveAlong { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+
+/* --- SVG Linjer --- */
+#connections { 
+position: absolute; top: 0; left: 0; 
+pointer-events: none; 
+z-index: 5; /* Samma som breven, framför tornet men bakom ledare */
+}
+.anim-line {
+stroke: var(--color-10-accent); stroke-width: 2.5; stroke-linecap: round;
+fill: none; opacity: 0; transition: opacity 0.15s;
+}
+.anim-line.active { opacity: 1; stroke-dasharray: 8 8; animation: flow 0.6s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -16; } }
+
+/* --- Admin & Modal (Oändrad) --- */
+#adminPanel { position: absolute; right: 0; top: 0; width: 320px; height: 100%; background: var(--color-30-dark); color: var(--color-60-surface); transition: transform 0.2s ease-out; overflow-y: auto; z-index: 100; }
+#adminPanel.collapsed { transform: translateX(100%); }
+#togglePanel { position: absolute; right: 320px; top: 20px; background: var(--color-10-accent); color: var(--color-60-surface); padding: 10px 20px; border-radius: 20px 0 0 20px; cursor: pointer; font-weight: 600; font-size: 14px; transition: right 0.2s ease-out; z-index: 101; }
+#adminPanel.collapsed ~ #togglePanel { right: 0 !important; }
+.panel-header { padding: 20px; font-size: 18px; font-weight: 700; border-bottom: 1px solid #374151; }
+.tool { padding: 15px 20px; border-bottom: 1px solid #374151; cursor: pointer; }
+.tool:hover { background: #374151; color: var(--color-10-accent); }
+.modal { position: fixed; inset: 0; background: rgba(17, 24, 39, 0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+.modalContent { background: var(--color-60-surface); padding: 25px; width: 400px; border-radius: 12px; }
+.modalContent input, .modalContent textarea { width: 100%; margin-bottom: 15px; padding: 10px; border: 1px solid #D1D5DB; border-radius: 6px; box-sizing: border-box; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.btn { padding: 8px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; }
+.btn-secondary { background: #E5E7EB; color: var(--color-30-dark); }
+.btn-primary { background: var(--color-10-accent); color: var(--color-60-surface); }
+</style>
+</head>
+<body>
+
+<div id="viewport">
+    <div id="board">
+        <div id="tower" class="node tower" style="top:40px; left:220px;">
+            <div class="tower-logo"></div>
+            <div id="btn-circle" class="ui-btn pill-btn">
+                <div class="icon-circle"></div> Mejla alla gruppledare
+            </div>
+            <div class="tower-title">Tornet</div>
+            <div id="btn-square" class="ui-btn rect-btn">
+                <div class="icon-square"></div> Utskick via alla plattformar
+            </div>
+        </div>
+
+        <svg id="connections" width="2000" height="2000"></svg>
+
+        <div id="g1" class="node person" style="top:200px; left:150px;"><div class="figure"></div><div class="label">Gruppledare</div></div>
+        <div id="g2" class="node person" style="top:200px; left:470px;"><div class="figure"></div><div class="label">Gruppledare</div></div>
+        <div id="g3" class="node person" style="top:200px; left:800px;"><div class="figure"></div><div class="label">Gruppledare</div></div>
+
+        <div id="p1" class="node platform" style="top:380px; left:100px;">Marknadsgruppen<div class="placeholder"></div></div>
+        <div id="p2" class="node platform" style="top:380px; left:420px;">Expertgrupp Sociala Medier<div class="placeholder"></div></div>
+        <div id="p3" class="node platform" style="top:380px; left:740px;">Valarbetargruppen<div class="placeholder"></div></div>
+    </div>
+</div>
+
+<div id="adminPanel">
+    <div class="panel-header">Adminverktyg</div>
+    <div class="tool">Översikt</div><div class="tool">Schemaläggning</div><div class="tool">Rapporter</div><div class="tool">Statistik</div><div class="tool">Skapa ny grupp</div><div class="tool">Behörigheter</div>
+</div>
+<div id="togglePanel">Stäng</div>
+
+<div class="modal" id="modal">
+    <div class="modalContent">
+        <h3 id="modalTitle">Massutskick</h3>
+        <input type="text" placeholder="Ämne"><textarea rows="5" placeholder="Skriv ditt meddelande här..."></textarea>
+        <div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Avbryt</button><button class="btn btn-primary" onclick="closeModal()">Skicka meddelande</button></div>
+    </div>
+</div>
+
+<script>
+const viewport = document.getElementById("viewport");
+const board = document.getElementById("board");
+let scale = 1, x = 0, y = 0;
+function setTransform(){ board.style.transform = `translate(${x}px,${y}px) scale(${scale})`; }
+
+let isPanning=false, startX=0, startY=0;
+viewport.addEventListener("mousedown", e => { if(e.button !== 0 || e.target.closest(".node")) return; isPanning = true; startX = e.clientX - x; startY = e.clientY - y; });
+window.addEventListener("mousemove", e => { if(!isPanning) return; x = e.clientX - startX; y = e.clientY - startY; setTransform(); });
+window.addEventListener("mouseup", () => isPanning = false);
+viewport.addEventListener("wheel", e => { e.preventDefault(); const rect = viewport.getBoundingClientRect(); const mx = e.clientX - rect.left; const my = e.clientY - rect.top; const zoom = e.deltaY < 0 ? 1.1 : 0.9; const newScale = Math.min(Math.max(scale * zoom, 0.4), 3); x = mx - (mx - x) * (newScale / scale); y = my - (my - y) * (newScale / scale); scale = newScale; setTransform(); }, {passive: false});
+
+const svg = document.getElementById("connections");
+const tower = document.getElementById("tower");
+const btnCircle = document.getElementById("btn-circle");
+const btnSquare = document.getElementById("btn-square");
+const leaders = [document.getElementById("g1"), document.getElementById("g2"), document.getElementById("g3")];
+const platforms = [document.getElementById("p1"), document.getElementById("p2"), document.getElementById("p3")];
+
+let leaderLinesDOM = [], leaderEnvelopesDOM = [], platformLinesDOM = [], platformEnvelopesDOM = [];
+
+function createConnection(x1, y1, x2, y2) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const d = `M ${x1} ${y1} L ${x2} ${y2}`;
+    path.setAttribute("d", d); path.setAttribute("class", "anim-line");
+    svg.appendChild(path);
+    const env = document.createElement("div");
+    env.className = "envelope";
+    env.style.offsetPath = `path('${d}')`;
+    board.appendChild(env);
+    return { path, env };
+}
+
+function connect(){
+    svg.innerHTML = ""; document.querySelectorAll('.envelope').forEach(e => e.remove());
+    leaderLinesDOM = []; leaderEnvelopesDOM = []; platformLinesDOM = []; platformEnvelopesDOM = [];
+    const circleStartX = tower.offsetLeft + btnCircle.offsetLeft + (btnCircle.offsetWidth / 2);
+    const circleStartY = tower.offsetTop + btnCircle.offsetTop + (btnCircle.offsetHeight / 2);
+    const squareStartX = tower.offsetLeft + btnSquare.offsetLeft + (btnSquare.offsetWidth / 2);
+    const squareStartY = tower.offsetTop + btnSquare.offsetTop + (btnSquare.offsetHeight / 2);
+
+    leaders.forEach(l => {
+        const res = createConnection(circleStartX, circleStartY, l.offsetLeft + (l.offsetWidth / 2), l.offsetTop + (l.offsetHeight / 2));
+        leaderLinesDOM.push(res.path); leaderEnvelopesDOM.push(res.env);
+    });
+    platforms.forEach(p => {
+        const res = createConnection(squareStartX, squareStartY, p.offsetLeft + (p.offsetWidth / 2), p.offsetTop + (p.offsetHeight / 2));
+        platformLinesDOM.push(res.path); platformEnvelopesDOM.push(res.env);
+    });
+}
+connect();
+
+btnCircle.onmouseenter = () => { leaderLinesDOM.forEach(l => l.classList.add("active")); leaderEnvelopesDOM.forEach(e => e.classList.add("active")); };
+btnCircle.onmouseleave = () => { leaderLinesDOM.forEach(l => l.classList.remove("active")); leaderEnvelopesDOM.forEach(e => e.classList.remove("active")); };
+btnCircle.onclick = () => openModal("Mejla alla gruppledare");
+
+btnSquare.onmouseenter = () => { platformLinesDOM.forEach(l => l.classList.add("active")); platformEnvelopesDOM.forEach(e => e.classList.add("active")); };
+btnSquare.onmouseleave = () => { platformLinesDOM.forEach(l => l.classList.remove("active")); platformEnvelopesDOM.forEach(e => e.classList.remove("active")); };
+btnSquare.onclick = () => openModal("Utskick via alla plattformar");
+
+const modal = document.getElementById("modal");
+function openModal(title){ document.getElementById("modalTitle").textContent = title; modal.style.display = "flex"; }
+function closeModal(){ modal.style.display = "none"; }
+modal.onmousedown = e => { if(e.target === modal) closeModal(); };
+
+const toggleBtn = document.getElementById('togglePanel');
+const adminPanel = document.getElementById('adminPanel');
+toggleBtn.onclick = function(){
+    const isCollapsed = adminPanel.classList.toggle('collapsed');
+    viewport.classList.toggle('expanded');
+    toggleBtn.textContent = isCollapsed ? "Verktyg" : "Stäng";
+};
+</script>
+</body>
+</html>
